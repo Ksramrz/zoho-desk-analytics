@@ -1,0 +1,42 @@
+name: Zoho Sync
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Every hour at minute 10 (free-tier friendly default)
+    - cron: "10 * * * *"
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      ZOHO_CLIENT_ID: ${{ secrets.ZOHO_CLIENT_ID }}
+      ZOHO_CLIENT_SECRET: ${{ secrets.ZOHO_CLIENT_SECRET }}
+      ZOHO_REFRESH_TOKEN: ${{ secrets.ZOHO_REFRESH_TOKEN }}
+      ZOHO_ORG_ID: ${{ secrets.ZOHO_ORG_ID }}
+      ZOHO_BASE_URL: ${{ secrets.ZOHO_BASE_URL }}
+      ZOHO_ACCOUNTS_URL: ${{ secrets.ZOHO_ACCOUNTS_URL }}
+      SYNC_LOOKBACK_DAYS: ${{ vars.SYNC_LOOKBACK_DAYS || '31' }}
+      SYNC_OVERLAP_HOURS: ${{ vars.SYNC_OVERLAP_HOURS || '24' }}
+      ANALYTICS_REPORT_TIMEZONE: ${{ vars.ANALYTICS_REPORT_TIMEZONE || 'America/Los_Angeles' }}
+      ANALYTICS_EXCLUDED_AGENT_NAMES: ${{ vars.ANALYTICS_EXCLUDED_AGENT_NAMES || 'TechProduct Team' }}
+      ANALYTICS_EXCLUDED_AGENT_IDS: ${{ vars.ANALYTICS_EXCLUDED_AGENT_IDS || '7296000004702077' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run sync once
+        run: python run_sync_once.py
