@@ -1,0 +1,9 @@
+# Optional, for local development only:
+#   cp docker-compose.override.example.yml docker-compose.override.yml
+# Docker Compose loads override.yml automatically and publishes Postgres on localhost.
+# On a production server, do NOT add this file — the database stays off the public internet.
+
+services:
+  db:
+    ports:
+      - "127.0.0.1:5432:5432"

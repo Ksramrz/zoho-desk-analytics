@@ -1,0 +1,8 @@
+.env
+docker-compose.override.yml
+backend/__pycache__/
+frontend/node_modules/
+frontend/dist/
+
+.env
+metabase.db/
