@@ -13,6 +13,7 @@ This folder contains one ready-to-copy Zoho HTML signature per person:
 - `yavar.html`
 - `nancy.html`
 - `joss.html`
+- `ruhi.html`
 
 ## How to add one in Zoho Mail
 
