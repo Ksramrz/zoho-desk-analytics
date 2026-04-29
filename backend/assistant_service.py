@@ -44,6 +44,59 @@ def load_knowledge_base() -> str:
     return path.read_text(encoding="utf-8")[: int(_config("ASSISTANT_KNOWLEDGE_MAX_CHARS", "24000") or "24000")]
 
 
+def allowed_assignee_names() -> list[str]:
+    raw = _config("ASSISTANT_ALLOWED_ASSIGNEE_NAMES", "Kasra")
+    return [name.strip() for name in raw.split(",") if name.strip()]
+
+
+def _norm(value: Any) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip()).casefold()
+
+
+def _ticket_assignee_values(context: dict[str, Any]) -> list[str]:
+    ticket = context.get("ticket") if isinstance(context.get("ticket"), dict) else context
+    keys = (
+        "assignee_name",
+        "assigneeName",
+        "assignee",
+        "assigned_to",
+        "assignedTo",
+        "owner",
+        "ownerName",
+    )
+    values: list[str] = []
+    for key in keys:
+        value = ticket.get(key)
+        if isinstance(value, dict):
+            value = value.get("name") or value.get("fullName") or value.get("email")
+        if value:
+            values.append(str(value))
+    return values
+
+
+def validate_allowed_assignee(context: dict[str, Any]) -> None:
+    if _config("ASSISTANT_REQUIRE_ALLOWED_ASSIGNEE", "1").lower() in {"0", "false", "no", "off"}:
+        return
+
+    allowed = allowed_assignee_names()
+    if not allowed:
+        return
+
+    actual = _ticket_assignee_values(context)
+    if not actual:
+        raise PermissionError(
+            "Draft blocked: ticket assignment is missing. OpenClaw must read the Zoho assignee, "
+            "or the ticket_id lookup must return an allowed assignee."
+        )
+
+    allowed_norm = {_norm(name) for name in allowed}
+    if not any(_norm(name) in allowed_norm for name in actual):
+        raise PermissionError(
+            "Draft blocked: this ticket is not assigned to an allowed assignee "
+            f"({', '.join(allowed)}). Found: {', '.join(actual)}."
+        )
+
+
 def _strip_html(value: Any) -> str:
     text = "" if value is None else str(value)
     text = re.sub(r"(?is)<(script|style).*?>.*?</\1>", " ", text)
@@ -102,6 +155,8 @@ def build_ticket_context(ticket_id: str) -> dict[str, Any]:
             "subject": ticket.get("subject"),
             "status": ticket.get("status"),
             "priority": ticket.get("priority"),
+            "assignee_id": ticket.get("assigneeId"),
+            "assignee_name": ticket.get("assigneeName"),
             "description": _strip_html(ticket.get("description")),
         },
         "messages": messages[-max_messages:],
@@ -143,6 +198,8 @@ def generate_draft(
 
     if not context and not customer_message:
         raise ValueError("Provide ticket_id, ticket_context, or customer_message")
+
+    validate_allowed_assignee(context)
 
     knowledge = load_knowledge_base()
     prompt = {

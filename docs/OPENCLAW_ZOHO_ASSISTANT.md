@@ -8,6 +8,7 @@ This repo now includes a backend assistant layer for:
 - giving OpenClaw a skill/runbook for using your open Zoho Desk browser tab
 
 The assistant does **not** auto-send customer replies. It creates drafts for a support agent to review.
+By default, drafts are only allowed for tickets assigned to **Kasra**.
 
 ## 1. Configure environment
 
@@ -19,9 +20,28 @@ AI_MODEL=gpt-4o-mini
 TELEGRAM_BOT_TOKEN=your_botfather_token
 TELEGRAM_CHAT_ID=your_telegram_chat_id
 ASSISTANT_REMINDER_TIMEZONE=America/Vancouver
+ASSISTANT_REQUIRE_ALLOWED_ASSIGNEE=1
+ASSISTANT_ALLOWED_ASSIGNEE_NAMES=Kasra
 ```
 
 The draft endpoint can work from browser-provided context with only `AI_API_KEY`. To fetch tickets directly by Zoho ticket id, your Zoho OAuth token must also be valid.
+
+## Kasra-only draft guard
+
+The backend blocks draft creation unless the ticket context includes an allowed assignee. Defaults:
+
+```bash
+ASSISTANT_REQUIRE_ALLOWED_ASSIGNEE=1
+ASSISTANT_ALLOWED_ASSIGNEE_NAMES=Kasra
+```
+
+For browser-based OpenClaw drafts, the skill must read the visible Zoho assignee and send it in `ticket_context.ticket.assignee_name`. For direct `ticket_id` drafts, the backend checks Zoho's ticket assignee returned by the API.
+
+Only disable this guard for testing:
+
+```bash
+ASSISTANT_REQUIRE_ALLOWED_ASSIGNEE=0
+```
 
 ## 2. Put your documents/tutorials into the knowledge file
 
@@ -94,9 +114,19 @@ openclaw/skills/zoho-desk-assistant
 The skill tells OpenClaw to:
 
 - read the currently open Zoho ticket from the browser
+- confirm the visible assignee is Kasra before asking for a draft
 - call `POST /api/assistant/drafts` for a draft response
 - call reminder endpoints when someone asks for a meeting or you promised a call
 - stop before sending any customer reply
+
+## Creative use cases to impress the team
+
+- **One-click reply draft:** Open a Kasra-assigned ticket, ask OpenClaw "draft my reply", review the generated answer, then paste it into Zoho.
+- **Meeting promise detector:** If you type or read "I'll call you at 11", create a Telegram reminder automatically.
+- **Support resource inserter:** Ask for "add the best tutorial links" and the draft can include approved roomvu links from `zoho_support.md`.
+- **Tone changer:** Generate versions like "short and friendly", "more detailed", or "apology + next steps" without re-reading the ticket.
+- **Internal note draft:** Have it draft a private summary for handoff while still refusing to send customer-facing replies automatically.
+- **Follow-up checklist:** Ask it to list what needs to be checked before replying when the docs do not fully answer the customer.
 
 ## 7. Manual API examples
 

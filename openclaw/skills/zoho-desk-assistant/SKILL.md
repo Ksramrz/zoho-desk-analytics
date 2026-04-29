@@ -12,6 +12,7 @@ Use this skill when the user is looking at a Zoho Desk ticket in the browser and
 - Never send a Zoho Desk reply automatically.
 - Only prepare draft text and ask the human to review/paste/send it.
 - Do not click Send, Submit, Reply, or similar final-action buttons in Zoho.
+- Only draft when the visible Zoho ticket is assigned to Kasra. Read the assignee from the ticket page and include it as `assignee_name` in the backend request.
 - If the browser cannot read the ticket clearly, ask the user to open the ticket and try again.
 
 ## Backend
@@ -32,15 +33,17 @@ Useful endpoints:
 2. Read the active Zoho Desk ticket page. Capture:
    - ticket id or number, if visible
    - subject
+   - assignee; it must be Kasra
    - latest customer message
    - recent conversation context
    - customer name, if visible
-3. Call the backend draft endpoint with browser-captured context:
+3. If the visible assignee is not Kasra, stop and say the assistant is restricted to Kasra's assigned tickets.
+4. Call the backend draft endpoint with browser-captured context:
 
 ```bash
 curl -s http://localhost:8000/api/assistant/drafts   -H 'Content-Type: application/json'   -d '{
     "ticket_context": {
-      "ticket": {"number": "VISIBLE_TICKET_NUMBER", "subject": "VISIBLE_SUBJECT"},
+      "ticket": {"number": "VISIBLE_TICKET_NUMBER", "subject": "VISIBLE_SUBJECT", "assignee_name": "Kasra"},
       "messages": [
         {"kind": "browser", "direction": "customer", "text": "LATEST_CUSTOMER_MESSAGE"}
       ]
@@ -50,8 +53,8 @@ curl -s http://localhost:8000/api/assistant/drafts   -H 'Content-Type: applicati
   }'
 ```
 
-4. Return the draft to the user clearly marked as a draft.
-5. If the user wants it inserted into Zoho, paste it into the reply editor only. Stop before sending.
+5. Return the draft to the user clearly marked as a draft.
+6. If the user wants it inserted into Zoho, paste it into the reply editor only. Stop before sending.
 
 ## Draft workflow by ticket id
 

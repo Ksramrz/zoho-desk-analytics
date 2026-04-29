@@ -4,7 +4,7 @@ from typing import Any
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from assistant_service import extract_reminders, generate_draft, load_knowledge_base
+from assistant_service import allowed_assignee_names, extract_reminders, generate_draft, load_knowledge_base
 from db import insert_ai_draft, insert_telegram_reminder, query_telegram_reminders
 from telegram_reminders import send_due_telegram_reminders, telegram_configured
 
@@ -44,6 +44,9 @@ def get_assistant_status():
         "telegram_configured": telegram_configured(),
         "knowledge_base_loaded": bool(load_knowledge_base()),
         "knowledge_path": os.getenv("ASSISTANT_KNOWLEDGE_PATH", "knowledge/zoho_support.md"),
+        "require_allowed_assignee": os.getenv("ASSISTANT_REQUIRE_ALLOWED_ASSIGNEE", "1").strip().lower()
+        not in {"0", "false", "no", "off"},
+        "allowed_assignee_names": allowed_assignee_names(),
     }
 
 
@@ -65,6 +68,8 @@ def create_draft(payload: DraftRequest):
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
     return {**result, "stored_draft": row}
