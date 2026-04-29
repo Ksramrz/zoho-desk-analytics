@@ -45,11 +45,15 @@ ASSISTANT_REQUIRE_ALLOWED_ASSIGNEE=1
 ASSISTANT_ALLOWED_ASSIGNEE_NAMES=Kasra
 ```
 
-2. Keep the backend running on a server or your computer:
+2. Keep the backend running on a server or your computer.
+
+With Docker:
 
 ```bash
 docker compose up -d --build
 ```
+
+Without Docker, use the systemd setup in `docs/NO_DOCKER_ALWAYS_ON.md`.
 
 After that, use Telegram. You do not need manual API commands for normal drafts/reminders.
 
