@@ -85,3 +85,10 @@ curl -X POST http://localhost:8000/api/sync/trigger
 - `GET /api/agents`
 - `GET /api/sync/status`
 - `POST /api/sync/trigger`
+
+## Optional AI draft + Telegram reminders
+
+See **`docs/OPENCLAW_ZOHO_ASSISTANT.md`** for the optional assistant setup.
+It adds `/api/assistant/*` endpoints for AI-generated draft replies, Telegram
+follow-up reminders, and an OpenClaw skill/runbook for working from an open
+Zoho Desk browser tab.

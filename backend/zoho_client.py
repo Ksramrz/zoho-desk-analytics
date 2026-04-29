@@ -67,7 +67,13 @@ class ZohoDeskClient:
             self.access_token = token
             return token
 
-    def _request(self, method: str, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _request(
+        self,
+        method: str,
+        path: str,
+        params: dict[str, Any] | None = None,
+        json_body: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         if not self.access_token:
             self.refresh_access_token()
 
@@ -78,7 +84,7 @@ class ZohoDeskClient:
         }
         for i in range(8):
             try:
-                resp = requests.request(method, url, headers=headers, params=params, timeout=60)
+                resp = requests.request(method, url, headers=headers, params=params, json=json_body, timeout=60)
             except requests.RequestException as exc:
                 if i >= 7:
                     raise
@@ -133,6 +139,9 @@ class ZohoDeskClient:
         if off in ("0", "false", "no", "off"):
             return self.list_threads(ticket_id), self.list_comments(ticket_id), self.list_history(ticket_id)
         return self.fetch_ticket_activity_parallel(ticket_id)
+
+    def get_ticket(self, ticket_id: str) -> dict[str, Any]:
+        return self._request("GET", f"/tickets/{ticket_id}")
 
     def list_modified_tickets(self, start_iso: str, end_iso: str) -> list[dict[str, Any]]:
         # Many portals reject modifiedTimeRange on /tickets with 422.
