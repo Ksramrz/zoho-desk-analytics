@@ -57,6 +57,24 @@ Without Docker, use the systemd setup in `docs/NO_DOCKER_ALWAYS_ON.md`.
 
 After that, use Telegram. You do not need manual API commands for normal drafts/reminders.
 
+## Help Center as draft source
+
+The assistant can use the roomvu Help Center as grounding for draft replies. A synced copy lives at:
+
+```text
+backend/knowledge/roomvu_help_center.md
+```
+
+Refresh it when articles change:
+
+```bash
+cd /opt/zoho-desk-analytics
+.venv/bin/python backend/sync_help_center.py --delay 1
+sudo systemctl restart zoho-assistant
+```
+
+The crawler starts from `https://help.roomvu.com/en/`, follows collection/article links, and respects the site's 1-second crawl delay.
+
 ## Best always-on options
 
 - Existing Oracle Cloud box from this repo's deployment docs

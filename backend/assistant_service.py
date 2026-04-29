@@ -31,17 +31,25 @@ def _config(name: str, default: str = "") -> str:
 
 
 def _knowledge_path() -> Path:
-    raw = _config("ASSISTANT_KNOWLEDGE_PATH", "knowledge/zoho_support.md")
+    raw = _config("ASSISTANT_KNOWLEDGE_PATH", "knowledge")
     return Path(raw)
 
 
 def load_knowledge_base() -> str:
-    path = _knowledge_path()
-    if not path.is_absolute():
-        path = Path(__file__).resolve().parent / path
-    if not path.exists():
-        return ""
-    return path.read_text(encoding="utf-8")[: int(_config("ASSISTANT_KNOWLEDGE_MAX_CHARS", "24000") or "24000")]
+    raw_paths = _config("ASSISTANT_KNOWLEDGE_PATH", "knowledge")
+    max_chars = int(_config("ASSISTANT_KNOWLEDGE_MAX_CHARS", "24000") or "24000")
+    base_dir = Path(__file__).resolve().parent
+    chunks: list[str] = []
+    for raw in [p.strip() for p in raw_paths.split(",") if p.strip()]:
+        path = Path(raw)
+        if not path.is_absolute():
+            path = base_dir / path
+        if path.is_dir():
+            for md in sorted(path.glob("*.md")):
+                chunks.append(f"# Source: {md.name}\n\n{md.read_text(encoding='utf-8')}")
+        elif path.exists():
+            chunks.append(f"# Source: {path.name}\n\n{path.read_text(encoding='utf-8')}")
+    return "\n\n---\n\n".join(chunks)[:max_chars]
 
 
 def allowed_assignee_names() -> list[str]:
