@@ -6,9 +6,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from db import init_db
+from routers import assistant as assistant_router
 from routers import analytics as analytics_router
 from routers import sync as sync_router
 from sync import run_sync
+from telegram_bot import poll_telegram_bot_once
+from telegram_reminders import send_due_telegram_reminders
 
 
 scheduler = BackgroundScheduler(timezone="UTC")
@@ -23,6 +26,24 @@ def _sync_interval_minutes() -> int:
     return max(15, min(m, 24 * 60))
 
 
+def _reminder_interval_minutes() -> int:
+    raw = os.getenv("TELEGRAM_REMINDER_INTERVAL_MINUTES", "5").strip()
+    try:
+        m = int(raw)
+    except ValueError:
+        m = 5
+    return max(1, min(m, 60))
+
+
+def _telegram_bot_interval_seconds() -> int:
+    raw = os.getenv("TELEGRAM_BOT_POLL_INTERVAL_SECONDS", "10").strip()
+    try:
+        seconds = int(raw)
+    except ValueError:
+        seconds = 10
+    return max(5, min(seconds, 300))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
@@ -30,6 +51,25 @@ async def lifespan(app: FastAPI):
         interval = _sync_interval_minutes()
         print(f"[startup] Scheduled Zoho sync every {interval} minute(s) (ZOHO_SYNC_INTERVAL_MINUTES)")
         scheduler.add_job(run_sync, "interval", minutes=interval, id="zoho_sync", replace_existing=True)
+        reminder_interval = _reminder_interval_minutes()
+        print(f"[startup] Scheduled Telegram reminder check every {reminder_interval} minute(s)")
+        scheduler.add_job(
+            send_due_telegram_reminders,
+            "interval",
+            minutes=reminder_interval,
+            id="telegram_reminders",
+            replace_existing=True,
+        )
+        bot_interval = _telegram_bot_interval_seconds()
+        print(f"[startup] Scheduled Telegram bot polling every {bot_interval} second(s)")
+        scheduler.add_job(
+            poll_telegram_bot_once,
+            "interval",
+            seconds=bot_interval,
+            id="telegram_bot_polling",
+            replace_existing=True,
+            max_instances=1,
+        )
         scheduler.start()
     try:
         yield
@@ -51,6 +91,7 @@ app.add_middleware(
 
 app.include_router(analytics_router.router)
 app.include_router(sync_router.router)
+app.include_router(assistant_router.router)
 
 
 @app.get("/health")

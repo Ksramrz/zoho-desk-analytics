@@ -282,6 +282,47 @@ def init_db() -> None:
             );
             """
         )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ai_drafts (
+                id SERIAL PRIMARY KEY,
+                ticket_id VARCHAR NULL,
+                customer_message TEXT NULL,
+                ticket_context JSONB NULL,
+                draft TEXT NOT NULL,
+                created_at TIMESTAMPTZ DEFAULT now()
+            );
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS telegram_reminders (
+                id SERIAL PRIMARY KEY,
+                ticket_id VARCHAR NULL,
+                message TEXT NOT NULL,
+                remind_at TIMESTAMPTZ NOT NULL,
+                status VARCHAR NOT NULL DEFAULT 'pending',
+                sent_at TIMESTAMPTZ NULL,
+                error_message TEXT NULL,
+                created_at TIMESTAMPTZ DEFAULT now()
+            );
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS ix_telegram_reminders_due
+            ON telegram_reminders(status, remind_at);
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS app_state (
+                key VARCHAR PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TIMESTAMPTZ DEFAULT now()
+            );
+            """
+        )
         # Analytics-friendly views for Metabase dashboards.
         cur.execute(
             """
@@ -663,6 +704,133 @@ def insert_sync_log(
             VALUES (%s,%s,%s,%s,%s,%s);
             """,
             (sync_start, sync_end, tickets_processed, actions_inserted, status, error_message),
+        )
+
+
+def insert_ai_draft(
+    *,
+    ticket_id: str | None,
+    customer_message: str | None,
+    ticket_context: dict[str, Any] | None,
+    draft: str,
+) -> dict[str, Any]:
+    with get_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """
+            INSERT INTO ai_drafts (ticket_id, customer_message, ticket_context, draft)
+            VALUES (%s, %s, %s, %s)
+            RETURNING id, ticket_id, customer_message, ticket_context, draft, created_at;
+            """,
+            (
+                ticket_id,
+                customer_message,
+                psycopg2.extras.Json(ticket_context) if ticket_context is not None else None,
+                draft,
+            ),
+        )
+        row = dict(cur.fetchone())
+        row["created_at"] = row["created_at"].isoformat()
+        return row
+
+
+def insert_telegram_reminder(
+    *,
+    ticket_id: str | None,
+    message: str,
+    remind_at: str,
+) -> dict[str, Any]:
+    with get_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """
+            INSERT INTO telegram_reminders (ticket_id, message, remind_at)
+            VALUES (%s, %s, %s::timestamptz)
+            RETURNING id, ticket_id, message, remind_at, status, sent_at, error_message, created_at;
+            """,
+            (ticket_id, message, remind_at),
+        )
+        row = dict(cur.fetchone())
+        row["remind_at"] = row["remind_at"].isoformat()
+        row["created_at"] = row["created_at"].isoformat()
+        row["sent_at"] = row["sent_at"].isoformat() if row.get("sent_at") else None
+        return row
+
+
+def query_due_telegram_reminders(limit: int = 25) -> list[dict[str, Any]]:
+    with get_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """
+            SELECT id, ticket_id, message, remind_at, status, sent_at, error_message, created_at
+            FROM telegram_reminders
+            WHERE status = 'pending'
+              AND remind_at <= now()
+            ORDER BY remind_at ASC
+            LIMIT %s;
+            """,
+            (limit,),
+        )
+        rows = []
+        for r in cur.fetchall():
+            row = dict(r)
+            row["remind_at"] = row["remind_at"].isoformat()
+            row["created_at"] = row["created_at"].isoformat()
+            row["sent_at"] = row["sent_at"].isoformat() if row.get("sent_at") else None
+            rows.append(row)
+        return rows
+
+
+def update_telegram_reminder_status(reminder_id: int, status: str, error_message: str | None = None) -> None:
+    with get_cursor() as (_, cur):
+        cur.execute(
+            """
+            UPDATE telegram_reminders
+            SET status = %s,
+                sent_at = CASE WHEN %s = 'sent' THEN now() ELSE sent_at END,
+                error_message = %s
+            WHERE id = %s;
+            """,
+            (status, status, error_message, reminder_id),
+        )
+
+
+def query_telegram_reminders(limit: int = 50) -> list[dict[str, Any]]:
+    with get_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """
+            SELECT id, ticket_id, message, remind_at, status, sent_at, error_message, created_at
+            FROM telegram_reminders
+            ORDER BY remind_at DESC
+            LIMIT %s;
+            """,
+            (limit,),
+        )
+        rows = []
+        for r in cur.fetchall():
+            row = dict(r)
+            row["remind_at"] = row["remind_at"].isoformat()
+            row["created_at"] = row["created_at"].isoformat()
+            row["sent_at"] = row["sent_at"].isoformat() if row.get("sent_at") else None
+            rows.append(row)
+        return rows
+
+
+def get_app_state(key: str, default: str | None = None) -> str | None:
+    with get_cursor() as (_, cur):
+        cur.execute("SELECT value FROM app_state WHERE key = %s;", (key,))
+        row = cur.fetchone()
+        return row[0] if row else default
+
+
+def set_app_state(key: str, value: str) -> None:
+    with get_cursor() as (_, cur):
+        cur.execute(
+            """
+            INSERT INTO app_state (key, value, updated_at)
+            VALUES (%s, %s, now())
+            ON CONFLICT (key) DO UPDATE SET
+                value = EXCLUDED.value,
+                updated_at = now();
+            """,
+            (key, value),
         )
 
 
