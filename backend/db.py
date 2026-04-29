@@ -314,6 +314,15 @@ def init_db() -> None:
             ON telegram_reminders(status, remind_at);
             """
         )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS app_state (
+                key VARCHAR PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TIMESTAMPTZ DEFAULT now()
+            );
+            """
+        )
         # Analytics-friendly views for Metabase dashboards.
         cur.execute(
             """
@@ -802,6 +811,27 @@ def query_telegram_reminders(limit: int = 50) -> list[dict[str, Any]]:
             row["sent_at"] = row["sent_at"].isoformat() if row.get("sent_at") else None
             rows.append(row)
         return rows
+
+
+def get_app_state(key: str, default: str | None = None) -> str | None:
+    with get_cursor() as (_, cur):
+        cur.execute("SELECT value FROM app_state WHERE key = %s;", (key,))
+        row = cur.fetchone()
+        return row[0] if row else default
+
+
+def set_app_state(key: str, value: str) -> None:
+    with get_cursor() as (_, cur):
+        cur.execute(
+            """
+            INSERT INTO app_state (key, value, updated_at)
+            VALUES (%s, %s, now())
+            ON CONFLICT (key) DO UPDATE SET
+                value = EXCLUDED.value,
+                updated_at = now();
+            """,
+            (key, value),
+        )
 
 
 def get_last_sync_end() -> str | None:

@@ -128,7 +128,43 @@ The skill tells OpenClaw to:
 - **Internal note draft:** Have it draft a private summary for handoff while still refusing to send customer-facing replies automatically.
 - **Follow-up checklist:** Ask it to list what needs to be checked before replying when the docs do not fully answer the customer.
 
-## 7. Manual API examples
+## 7. Easiest daily use: Telegram commands
+
+Leave the backend running on your computer/server. After that, use Telegram instead of running commands:
+
+```text
+/draft <zoho_ticket_id>
+```
+
+Creates a draft for that Zoho ticket only if it is assigned to Kasra.
+
+```text
+/remind tomorrow 11 call customer about onboarding
+/remind 2026-04-30 11:00 call customer about onboarding
+```
+
+Stores a Telegram reminder; the backend sends it when due.
+
+```text
+/status
+/help
+```
+
+Checks configuration or shows commands.
+
+The bot polling job runs automatically every `TELEGRAM_BOT_POLL_INTERVAL_SECONDS` seconds when `TELEGRAM_BOT_POLLING_ENABLED=1`.
+
+## 8. Always-on options
+
+You only need to start the service once. Good options:
+
+- keep `docker compose up -d --build` running on your office computer
+- deploy the Docker Compose app to your Oracle/VPS server
+- run it on a small always-on machine in the office
+
+Once it is always-on, your normal workflow is just Telegram messages and optional OpenClaw browser use.
+
+## 9. Manual API examples
 
 Create a draft from copied text:
 

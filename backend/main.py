@@ -10,6 +10,7 @@ from routers import assistant as assistant_router
 from routers import analytics as analytics_router
 from routers import sync as sync_router
 from sync import run_sync
+from telegram_bot import poll_telegram_bot_once
 from telegram_reminders import send_due_telegram_reminders
 
 
@@ -34,6 +35,15 @@ def _reminder_interval_minutes() -> int:
     return max(1, min(m, 60))
 
 
+def _telegram_bot_interval_seconds() -> int:
+    raw = os.getenv("TELEGRAM_BOT_POLL_INTERVAL_SECONDS", "10").strip()
+    try:
+        seconds = int(raw)
+    except ValueError:
+        seconds = 10
+    return max(5, min(seconds, 300))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
@@ -49,6 +59,16 @@ async def lifespan(app: FastAPI):
             minutes=reminder_interval,
             id="telegram_reminders",
             replace_existing=True,
+        )
+        bot_interval = _telegram_bot_interval_seconds()
+        print(f"[startup] Scheduled Telegram bot polling every {bot_interval} second(s)")
+        scheduler.add_job(
+            poll_telegram_bot_once,
+            "interval",
+            seconds=bot_interval,
+            id="telegram_bot_polling",
+            replace_existing=True,
+            max_instances=1,
         )
         scheduler.start()
     try:
