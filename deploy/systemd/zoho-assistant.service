@@ -1,0 +1,21 @@
+[Unit]
+Description=roomvu Zoho assistant backend
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=zohoassistant
+Group=zohoassistant
+WorkingDirectory=/opt/zoho-desk-analytics/backend
+EnvironmentFile=/opt/zoho-desk-analytics/.env
+ExecStart=/opt/zoho-desk-analytics/.venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=5
+
+# Keep secrets in /opt/zoho-desk-analytics/.env, not in this unit file.
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
