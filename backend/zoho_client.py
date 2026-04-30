@@ -8,8 +8,8 @@ from typing import Any
 import requests
 
 
-ACCOUNTS_BASE = "https://accounts.zohocloud.ca"
-DESK_BASE = "https://desk.zohocloud.ca/api/v1"
+DEFAULT_ACCOUNTS_BASE = "https://accounts.zohocloud.ca"
+DEFAULT_DESK_BASE = "https://desk.zohocloud.ca/api/v1"
 
 
 class ZohoDeskClient:
@@ -21,6 +21,8 @@ class ZohoDeskClient:
         self.client_secret = os.getenv("ZOHO_CLIENT_SECRET", "").strip()
         self.refresh_token = os.getenv("ZOHO_REFRESH_TOKEN", "").strip()
         self.org_id = os.getenv("ZOHO_ORG_ID", "").strip()
+        self.accounts_base = os.getenv("ZOHO_ACCOUNTS_URL", DEFAULT_ACCOUNTS_BASE).strip().rstrip("/")
+        self.desk_base = os.getenv("ZOHO_BASE_URL", DEFAULT_DESK_BASE).strip().rstrip("/")
         self.access_token: str | None = None
 
         missing = [
@@ -50,7 +52,7 @@ class ZohoDeskClient:
 
     def refresh_access_token(self) -> str:
         with ZohoDeskClient._refresh_lock:
-            url = f"{ACCOUNTS_BASE}/oauth/v2/token"
+            url = f"{self.accounts_base}/oauth/v2/token"
             payload = {
                 "grant_type": "refresh_token",
                 "client_id": self.client_id,
@@ -71,7 +73,7 @@ class ZohoDeskClient:
         if not self.access_token:
             self.refresh_access_token()
 
-        url = f"{DESK_BASE}{path}"
+        url = f"{self.desk_base}{path}"
         headers = {
             "Authorization": f"Zoho-oauthtoken {self.access_token}",
             "orgId": self.org_id,

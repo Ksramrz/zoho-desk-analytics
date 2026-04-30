@@ -88,7 +88,18 @@ def _event_id(prefix: str, *parts: Any) -> str:
     return f"{prefix}:{digest}"
 
 
-def run_sync() -> dict[str, Any]:
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name, "").strip().lower()
+    if not raw:
+        return default
+    return raw in ("1", "true", "yes", "on")
+
+
+def run_sync(
+    *,
+    force_full_lookback: bool | None = None,
+    lookback_days_override: int | None = None,
+) -> dict[str, Any]:
     if not _sync_lock.acquire(blocking=False):
         return {"started": False, "message": "Sync already running"}
 
@@ -99,9 +110,19 @@ def run_sync() -> dict[str, Any]:
 
     try:
         client = ZohoDeskClient()
-        lookback_days = int(os.getenv("SYNC_LOOKBACK_DAYS", "31"))
+        lookback_days = (
+            lookback_days_override
+            if lookback_days_override is not None
+            else int(os.getenv("SYNC_LOOKBACK_DAYS", "31"))
+        )
         overlap_hours = int(os.getenv("SYNC_OVERLAP_HOURS", "24"))
-        if is_first_run():
+        if force_full_lookback is None:
+            force_full_lookback = _env_bool("SYNC_FORCE_FULL_LOOKBACK", False)
+
+        if force_full_lookback:
+            # Full window from now (no incremental cursor). Use for backfills / “resync last week”.
+            window_start = start_dt - dt.timedelta(days=lookback_days)
+        elif is_first_run():
             window_start = start_dt - dt.timedelta(days=max(90, lookback_days))
         else:
             # Incremental sync for faster, reliable recurring runs.
