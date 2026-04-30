@@ -124,8 +124,11 @@ server {
         return 200 "roomvu-vhost-OK\n";
     }
 
-    location /api/ {
-        proxy_pass http://127.0.0.1:${BACKEND_PORT};
+    # Backend (FastAPI / Zoho sync) lives under /zsync/ so it does not
+    # collide with Metabase's own /api/* endpoints. Trailing slash on
+    # proxy_pass rewrites /zsync/foo -> /foo on the upstream.
+    location /zsync/ {
+        proxy_pass http://127.0.0.1:${BACKEND_PORT}/;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -162,8 +165,8 @@ server {
         return 200 "roomvu-vhost-OK-tls\n";
     }
 
-    location /api/ {
-        proxy_pass http://127.0.0.1:${BACKEND_PORT};
+    location /zsync/ {
+        proxy_pass http://127.0.0.1:${BACKEND_PORT}/;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
