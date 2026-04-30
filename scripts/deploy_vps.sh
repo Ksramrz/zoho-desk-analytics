@@ -89,7 +89,26 @@ sleep 8
 docker compose ps
 
 echo "--- Step 6: configure nginx vhost for $SUBDOMAIN -> Metabase ---"
-mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled /etc/nginx/conf.d
+mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled /etc/nginx/conf.d /etc/ssl/roomvu
+
+# Generate a self-signed cert for the new vhost (CF connects to origin via
+# HTTPS on Full/Strict modes; this cert lets nginx accept those connections
+# without touching the existing Laravel/cashvers SSL setup).
+ROOMVU_CRT=/etc/ssl/roomvu/roomvu.crt
+ROOMVU_KEY=/etc/ssl/roomvu/roomvu.key
+if ! command -v openssl >/dev/null 2>&1; then
+  apt-get install -y openssl
+fi
+if [[ ! -s "$ROOMVU_CRT" || ! -s "$ROOMVU_KEY" ]]; then
+  openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+    -keyout "$ROOMVU_KEY" -out "$ROOMVU_CRT" \
+    -subj "/CN=${SUBDOMAIN}" -addext "subjectAltName=DNS:${SUBDOMAIN}" \
+    >/dev/null 2>&1 || \
+  openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+    -keyout "$ROOMVU_KEY" -out "$ROOMVU_CRT" \
+    -subj "/CN=${SUBDOMAIN}" >/dev/null 2>&1
+  chmod 600 "$ROOMVU_KEY"
+fi
 
 VHOST_BODY=$(cat <<EOF
 server {
@@ -126,17 +145,61 @@ server {
         proxy_read_timeout 600s;
     }
 }
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name ${SUBDOMAIN};
+
+    ssl_certificate ${ROOMVU_CRT};
+    ssl_certificate_key ${ROOMVU_KEY};
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    client_max_body_size 50m;
+
+    location = /__roomvu_health {
+        default_type text/plain;
+        return 200 "roomvu-vhost-OK-tls\n";
+    }
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:${BACKEND_PORT};
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 600s;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:${METABASE_PORT};
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 600s;
+    }
+}
 EOF
 )
 
-# Write to both sites-available + sites-enabled AND conf.d so the vhost is
-# picked up regardless of which include directive nginx.conf uses.
+# Detect whether nginx.conf already includes sites-enabled or only conf.d.
+# Write the vhost to ONE location only to avoid "conflicting server name"
+# duplicate-server warnings.
 NG_CONF=/etc/nginx/sites-available/roomvu-cashvers.conf
 NG_LINK=/etc/nginx/sites-enabled/roomvu-cashvers.conf
 NG_CONFD=/etc/nginx/conf.d/roomvu-cashvers.conf
-echo "$VHOST_BODY" > "$NG_CONF"
-ln -sf "$NG_CONF" "$NG_LINK"
-echo "$VHOST_BODY" > "$NG_CONFD"
+
+rm -f "$NG_CONFD" "$NG_LINK" "$NG_CONF"
+if grep -q "sites-enabled" /etc/nginx/nginx.conf 2>/dev/null; then
+  echo "$VHOST_BODY" > "$NG_CONF"
+  ln -sf "$NG_CONF" "$NG_LINK"
+else
+  echo "$VHOST_BODY" > "$NG_CONFD"
+fi
 
 # Make sure nginx includes sites-enabled (some Hostinger images use conf.d only).
 if ! grep -q "sites-enabled" /etc/nginx/nginx.conf 2>/dev/null; then
@@ -155,7 +218,13 @@ else
 fi
 
 echo "--- nginx vhost status (grep loaded conf for our server_name) ---"
-nginx -T 2>/dev/null | grep -n -E "server_name .*${SUBDOMAIN}|__roomvu_health" || echo "WARN: roomvu vhost markers NOT found in active nginx config"
+nginx -T 2>/dev/null | grep -n -E "server_name .*${SUBDOMAIN}|__roomvu_health|listen .*443" | head -20 || echo "WARN: roomvu vhost markers NOT found in active nginx config"
+
+echo "--- internal upstream sanity ---"
+echo "Backend  127.0.0.1:${BACKEND_PORT}/api/health -> $(curl -fsS --max-time 5 http://127.0.0.1:${BACKEND_PORT}/api/health || echo FAIL)"
+echo "Metabase 127.0.0.1:${METABASE_PORT}/api/health -> $(curl -fsS --max-time 5 http://127.0.0.1:${METABASE_PORT}/api/health || echo FAIL)"
+echo "Vhost via Host header (HTTP)  -> $(curl -fsS --max-time 5 -H 'Host: ${SUBDOMAIN}' http://127.0.0.1/__roomvu_health || echo FAIL)"
+echo "Vhost via Host header (HTTPS) -> $(curl -fsSk --max-time 5 -H 'Host: ${SUBDOMAIN}' https://127.0.0.1/__roomvu_health || echo FAIL)"
 
 echo "--- Step 7: kick a fresh sync (last 31 days, force full) ---"
 sleep 4
