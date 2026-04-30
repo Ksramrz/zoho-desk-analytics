@@ -89,16 +89,21 @@ sleep 8
 docker compose ps
 
 echo "--- Step 6: configure nginx vhost for $SUBDOMAIN -> Metabase ---"
-NG_CONF=/etc/nginx/sites-available/roomvu-cashvers.conf
-NG_LINK=/etc/nginx/sites-enabled/roomvu-cashvers.conf
-mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled
-cat > "$NG_CONF" <<EOF
+mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled /etc/nginx/conf.d
+
+VHOST_BODY=$(cat <<EOF
 server {
     listen 80;
     listen [::]:80;
     server_name ${SUBDOMAIN};
 
     client_max_body_size 50m;
+
+    # Lightweight marker so we can verify which vhost is actually answering.
+    location = /__roomvu_health {
+        default_type text/plain;
+        return 200 "roomvu-vhost-OK\n";
+    }
 
     location /api/ {
         proxy_pass http://127.0.0.1:${BACKEND_PORT};
@@ -122,7 +127,16 @@ server {
     }
 }
 EOF
+)
+
+# Write to both sites-available + sites-enabled AND conf.d so the vhost is
+# picked up regardless of which include directive nginx.conf uses.
+NG_CONF=/etc/nginx/sites-available/roomvu-cashvers.conf
+NG_LINK=/etc/nginx/sites-enabled/roomvu-cashvers.conf
+NG_CONFD=/etc/nginx/conf.d/roomvu-cashvers.conf
+echo "$VHOST_BODY" > "$NG_CONF"
 ln -sf "$NG_CONF" "$NG_LINK"
+echo "$VHOST_BODY" > "$NG_CONFD"
 
 # Make sure nginx includes sites-enabled (some Hostinger images use conf.d only).
 if ! grep -q "sites-enabled" /etc/nginx/nginx.conf 2>/dev/null; then
@@ -139,6 +153,9 @@ else
   apt-get install -y nginx
   nginx -t && systemctl enable --now nginx
 fi
+
+echo "--- nginx vhost status (grep loaded conf for our server_name) ---"
+nginx -T 2>/dev/null | grep -n -E "server_name .*${SUBDOMAIN}|__roomvu_health" || echo "WARN: roomvu vhost markers NOT found in active nginx config"
 
 echo "--- Step 7: kick a fresh sync (last 31 days, force full) ---"
 sleep 4
