@@ -24,8 +24,14 @@ FRONTEND_PORT="${FRONTEND_PORT:-18080}"
 METABASE_PORT="${METABASE_PORT:-13000}"
 DB_PORT="${DB_PORT:-15432}"
 
-if [[ -z "${ZOHO_CLIENT_ID:-}" || -z "${ZOHO_CLIENT_SECRET:-}" || -z "${ZOHO_REFRESH_TOKEN:-}" || -z "${ZOHO_ORG_ID:-}" ]]; then
-  echo "Missing Zoho env vars. Aborting."; exit 1
+# Accept Zoho creds via env or positional args 1..4.
+ZOHO_CLIENT_ID="${ZOHO_CLIENT_ID:-${1:-}}"
+ZOHO_CLIENT_SECRET="${ZOHO_CLIENT_SECRET:-${2:-}}"
+ZOHO_REFRESH_TOKEN="${ZOHO_REFRESH_TOKEN:-${3:-}}"
+ZOHO_ORG_ID="${ZOHO_ORG_ID:-${4:-}}"
+
+if [[ -z "$ZOHO_CLIENT_ID" || -z "$ZOHO_CLIENT_SECRET" || -z "$ZOHO_REFRESH_TOKEN" || -z "$ZOHO_ORG_ID" ]]; then
+  echo "Missing Zoho creds (env or args). Aborting."; exit 1
 fi
 
 echo "--- Step 1: install Docker + Compose ---"
