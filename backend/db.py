@@ -575,6 +575,48 @@ def init_db() -> None:
         )
         _create_reporting_views_pt(cur)
 
+        # Telegram bot tables (subscribers, alert dedup, callback promises).
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS telegram_subscribers (
+                chat_id BIGINT PRIMARY KEY,
+                username VARCHAR NULL,
+                first_name VARCHAR NULL,
+                subscribed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            );
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS telegram_alerts_sent (
+                alert_key VARCHAR PRIMARY KEY,
+                last_sent_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            );
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS telegram_callback_promises (
+                id SERIAL PRIMARY KEY,
+                ticket_id VARCHAR NOT NULL,
+                ticket_number VARCHAR NULL,
+                subject VARCHAR NULL,
+                promised_at TIMESTAMPTZ NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                sent_at TIMESTAMPTZ NULL,
+                UNIQUE (ticket_id, promised_at)
+            );
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS telegram_state (
+                key VARCHAR PRIMARY KEY,
+                value VARCHAR NOT NULL
+            );
+            """
+        )
+
 
 def is_first_run() -> bool:
     with get_cursor() as (_, cur):
@@ -845,3 +887,136 @@ def query_sync_status(limit: int = 5):
             row["sync_end"] = row["sync_end"].isoformat()
             rows.append(row)
         return rows
+
+
+# ---------- Telegram subscriber + alert helpers ----------
+
+
+def add_telegram_subscriber(*, chat_id: int, username: str = "", first_name: str = "") -> None:
+    with get_cursor() as (_, cur):
+        cur.execute(
+            """
+            INSERT INTO telegram_subscribers (chat_id, username, first_name)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (chat_id) DO UPDATE SET
+                username = EXCLUDED.username,
+                first_name = EXCLUDED.first_name;
+            """,
+            (chat_id, username or None, first_name or None),
+        )
+
+
+def remove_telegram_subscriber(chat_id: int) -> None:
+    with get_cursor() as (_, cur):
+        cur.execute("DELETE FROM telegram_subscribers WHERE chat_id = %s;", (chat_id,))
+
+
+def list_telegram_subscribers() -> list[int]:
+    with get_cursor() as (_, cur):
+        cur.execute("SELECT chat_id FROM telegram_subscribers ORDER BY subscribed_at;")
+        return [int(r[0]) for r in cur.fetchall()]
+
+
+def seen_alert_recently(alert_key: str, within_hours: int) -> bool:
+    with get_cursor() as (_, cur):
+        cur.execute(
+            "SELECT last_sent_at FROM telegram_alerts_sent WHERE alert_key = %s;",
+            (alert_key,),
+        )
+        row = cur.fetchone()
+        if not row or not row[0]:
+            return False
+        import datetime as _dt
+        delta = _dt.datetime.now(_dt.timezone.utc) - row[0]
+        return delta.total_seconds() < within_hours * 3600
+
+
+def mark_alert_sent(alert_key: str) -> None:
+    with get_cursor() as (_, cur):
+        cur.execute(
+            """
+            INSERT INTO telegram_alerts_sent (alert_key, last_sent_at)
+            VALUES (%s, now())
+            ON CONFLICT (alert_key) DO UPDATE SET last_sent_at = now();
+            """,
+            (alert_key,),
+        )
+
+
+def add_callback_promise(*, ticket_id: str, ticket_number: str, subject: str, promised_at) -> bool:
+    """Returns True if a new promise was inserted (not a duplicate)."""
+    with get_cursor() as (_, cur):
+        cur.execute(
+            """
+            INSERT INTO telegram_callback_promises (ticket_id, ticket_number, subject, promised_at)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (ticket_id, promised_at) DO NOTHING;
+            """,
+            (ticket_id, ticket_number or None, subject or None, promised_at),
+        )
+        return cur.rowcount > 0
+
+
+def due_callback_promises(*, window_minutes: int = 5, include_future: bool = False) -> list[dict]:
+    """
+    By default returns promises whose time is within `window_minutes` past or future
+    AND not yet sent. Set include_future=True to list everything pending in the next 24h.
+    """
+    with get_cursor(dict_cursor=True) as (_, cur):
+        if include_future:
+            cur.execute(
+                """
+                SELECT id, ticket_id, ticket_number, subject, promised_at
+                FROM telegram_callback_promises
+                WHERE sent_at IS NULL
+                  AND promised_at >= now() - make_interval(mins => %s)
+                  AND promised_at <= now() + make_interval(mins => %s)
+                ORDER BY promised_at;
+                """,
+                (window_minutes, window_minutes),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT id, ticket_id, ticket_number, subject, promised_at
+                FROM telegram_callback_promises
+                WHERE sent_at IS NULL
+                  AND promised_at <= now() + make_interval(mins => %s)
+                  AND promised_at >= now() - INTERVAL '60 minutes'
+                ORDER BY promised_at;
+                """,
+                (window_minutes,),
+            )
+        return [dict(r) for r in cur.fetchall()]
+
+
+def mark_callback_sent(promise_id: int) -> None:
+    with get_cursor() as (_, cur):
+        cur.execute(
+            "UPDATE telegram_callback_promises SET sent_at = now() WHERE id = %s;",
+            (promise_id,),
+        )
+
+
+def telegram_update_offset() -> int | None:
+    with get_cursor() as (_, cur):
+        cur.execute("SELECT value FROM telegram_state WHERE key = 'last_update_id';")
+        row = cur.fetchone()
+        if not row:
+            return None
+        try:
+            return int(row[0])
+        except (TypeError, ValueError):
+            return None
+
+
+def record_telegram_update_offset(offset: int) -> None:
+    with get_cursor() as (_, cur):
+        cur.execute(
+            """
+            INSERT INTO telegram_state (key, value)
+            VALUES ('last_update_id', %s)
+            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+            """,
+            (str(offset),),
+        )
