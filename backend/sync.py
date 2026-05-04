@@ -5,6 +5,7 @@ import threading
 from typing import Any
 
 from db import get_last_sync_end, insert_sync_log, is_first_run, upsert_action, upsert_ticket_snapshot
+from zoho_automation import zoho_automation_disabled
 from zoho_client import ZohoDeskClient
 
 
@@ -109,6 +110,12 @@ def run_sync(
     failed_tickets = 0
 
     try:
+        if zoho_automation_disabled():
+            return {
+                "started": False,
+                "message": "DISABLE_ZOHO_AUTOMATION is set — sync skipped (no Zoho calls).",
+            }
+
         client = ZohoDeskClient()
         lookback_days = (
             lookback_days_override

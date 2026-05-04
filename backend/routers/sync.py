@@ -1,9 +1,10 @@
 from functools import partial
 
-from fastapi import APIRouter, BackgroundTasks, Query
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 
 from db import query_sync_status
 from sync import run_sync
+from zoho_automation import zoho_automation_disabled
 
 
 router = APIRouter(prefix="/api/sync", tags=["sync"])
@@ -33,6 +34,11 @@ def trigger_sync(
         kwargs["force_full_lookback"] = True
     if lookback_days is not None:
         kwargs["lookback_days_override"] = lookback_days
+    if zoho_automation_disabled():
+        raise HTTPException(
+            status_code=503,
+            detail="Zoho automation disabled (DISABLE_ZOHO_AUTOMATION=1). No sync queued.",
+        )
     background_tasks.add_task(partial(run_sync, **kwargs))
     return {
         "message": "Sync job submitted",

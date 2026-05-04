@@ -12,6 +12,7 @@ from routers import telegram as telegram_router
 from sync import run_sync
 from telegram_alerts import is_enabled as telegram_enabled
 from telegram_alerts import poll_telegram_updates, scan_and_alert
+from zoho_automation import zoho_automation_disabled
 
 
 scheduler = BackgroundScheduler(timezone="UTC")
@@ -48,27 +49,33 @@ def _telegram_poll_seconds() -> int:
 async def lifespan(app: FastAPI):
     init_db()
     if not scheduler.running:
-        interval = _sync_interval_minutes()
-        print(f"[startup] Scheduled Zoho sync every {interval} minute(s) (ZOHO_SYNC_INTERVAL_MINUTES)")
-        scheduler.add_job(run_sync, "interval", minutes=interval, id="zoho_sync", replace_existing=True)
-
-        if telegram_enabled():
-            scan_min = _telegram_scan_minutes()
-            poll_sec = _telegram_poll_seconds()
+        if zoho_automation_disabled():
             print(
-                f"[startup] Telegram bot enabled: scanning Zoho every {scan_min} min, "
-                f"polling getUpdates every {poll_sec} s"
-            )
-            scheduler.add_job(
-                scan_and_alert, "interval", minutes=scan_min, id="telegram_scan", replace_existing=True
-            )
-            scheduler.add_job(
-                poll_telegram_updates, "interval", seconds=poll_sec, id="telegram_poll", replace_existing=True
+                "[startup] DISABLE_ZOHO_AUTOMATION is set — Zoho sync scheduler OFF, "
+                "Telegram Zoho scan OFF, POST /api/sync/trigger rejected. Postgres read-only."
             )
         else:
-            print("[startup] Telegram bot disabled (TELEGRAM_BOT_TOKEN not set)")
+            interval = _sync_interval_minutes()
+            print(f"[startup] Scheduled Zoho sync every {interval} minute(s) (ZOHO_SYNC_INTERVAL_MINUTES)")
+            scheduler.add_job(run_sync, "interval", minutes=interval, id="zoho_sync", replace_existing=True)
 
-        scheduler.start()
+            if telegram_enabled():
+                scan_min = _telegram_scan_minutes()
+                poll_sec = _telegram_poll_seconds()
+                print(
+                    f"[startup] Telegram bot enabled: scanning Zoho every {scan_min} min, "
+                    f"polling getUpdates every {poll_sec} s"
+                )
+                scheduler.add_job(
+                    scan_and_alert, "interval", minutes=scan_min, id="telegram_scan", replace_existing=True
+                )
+                scheduler.add_job(
+                    poll_telegram_updates, "interval", seconds=poll_sec, id="telegram_poll", replace_existing=True
+                )
+            else:
+                print("[startup] Telegram bot disabled (TELEGRAM_BOT_TOKEN not set)")
+
+            scheduler.start()
     try:
         yield
     finally:

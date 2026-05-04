@@ -2,9 +2,8 @@ name: Zoho Sync
 
 on:
   workflow_dispatch:
-  schedule:
-    # Every hour at minute 10 (free-tier friendly default)
-    - cron: "10 * * * *"
+  # Hourly schedule removed — it doubled API load with the VPS APScheduler sync.
+  # Re-enable only after Zoho quota is healthy and you intentionally want CI sync.
 
 jobs:
   sync:

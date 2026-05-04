@@ -1,6 +1,7 @@
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 
 from db import list_telegram_subscribers
+from zoho_automation import zoho_automation_disabled
 from telegram_alerts import (
     TGClient,
     agent_id,
@@ -34,6 +35,11 @@ def telegram_status():
 def trigger_scan(background_tasks: BackgroundTasks):
     if not is_enabled():
         raise HTTPException(status_code=400, detail="TELEGRAM_BOT_TOKEN not configured")
+    if zoho_automation_disabled():
+        raise HTTPException(
+            status_code=503,
+            detail="Zoho automation disabled (DISABLE_ZOHO_AUTOMATION=1). Scan not queued.",
+        )
     background_tasks.add_task(scan_and_alert)
     return {"queued": True}
 

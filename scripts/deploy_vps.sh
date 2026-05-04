@@ -229,10 +229,14 @@ echo "Metabase 127.0.0.1:${METABASE_PORT}/api/health -> $(curl -fsS --max-time 5
 echo "Vhost via Host header (HTTP)  -> $(curl -fsS --max-time 5 -H 'Host: ${SUBDOMAIN}' http://127.0.0.1/__roomvu_health || echo FAIL)"
 echo "Vhost via Host header (HTTPS) -> $(curl -fsSk --max-time 5 -H 'Host: ${SUBDOMAIN}' https://127.0.0.1/__roomvu_health || echo FAIL)"
 
-echo "--- Step 7: kick a fresh sync (last 31 days, force full) ---"
-sleep 4
-curl -fsS -X POST "http://127.0.0.1:${BACKEND_PORT}/api/sync/trigger?force_full_lookback=true&lookback_days=31" \
-  -H 'Content-Type: application/json' -d '{}' || true
+echo "--- Step 7: optional initial Zoho sync (off by default; set RUN_DEPLOY_SYNC=1 to enable) ---"
+if [ "${RUN_DEPLOY_SYNC:-0}" = "1" ]; then
+  sleep 4
+  curl -fsS -X POST "http://127.0.0.1:${BACKEND_PORT}/api/sync/trigger?force_full_lookback=true&lookback_days=31" \
+    -H 'Content-Type: application/json' -d '{}' || true
+else
+  echo "Skipping deploy-time sync (RUN_DEPLOY_SYNC is not 1). Avoids hammering Zoho on every redeploy."
+fi
 echo
 
 echo "--- Step 8: status report ---"
